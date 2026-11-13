@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Avance de la votación</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="contenedor">
+  <header class="cabecera">
+    <h1>Avance de la votación</h1>
+    <p class="sub" id="actualizado">Cargando…</p>
+  </header>
+  <div id="nodos" class="grid-nodos"></div>
+  <footer class="pie"><a href="index.html">Ir a votar</a></footer>
+</main>
+
+<script src="config.js"></script>
+<script>
+  const REFRESCO_MS = 15000;
+
+  function torta(votaron, total) {
+    const r = 70, C = 2 * Math.PI * r;
+    const p = total ? votaron / total : 0;
+    return `
+      <svg viewBox="0 0 180 180" class="torta" role="img" aria-label="${votaron} de ${total} votos recibidos">
+        <circle cx="90" cy="90" r="${r}" fill="none" stroke="var(--pendiente)" stroke-width="30"/>
+        <circle cx="90" cy="90" r="${r}" fill="none" stroke="var(--primario)" stroke-width="30"
+                stroke-dasharray="${(p * C).toFixed(2)} ${C.toFixed(2)}" transform="rotate(-90 90 90)"/>
+        <text x="90" y="94" text-anchor="middle" class="torta-pct">${Math.round(p * 100)}%</text>
+        <text x="90" y="114" text-anchor="middle" class="torta-sub">participación</text>
+      </svg>`;
+  }
+
+  function podio(res) {
+    // En el podio solo quien tenga votos (si nadie votó, se muestran igual)
+    const conVotos = res.ranking.filter(c => c.votos > 0);
+    const top = (conVotos.length ? conVotos : res.ranking).slice(0, 3);
+    const orden = [top[1], top[0], top[2]]; // 2.º · 1.º · 3.º
+    const escalon = c => c ? `
+      <div class="escalon p${Math.min(c.puesto, 3)}">
+        <div class="persona">${esc(c.nombre)}</div>
+        <div class="lugar">${esc(c.municipio)}</div>
+        <div class="votos-podio">${c.votos} voto${c.votos === 1 ? '' : 's'}</div>
+        <div class="bloque">${c.puesto}</div>
+      </div>` : '<div></div>';
+    const titular = res.empate
+      ? `<div class="alerta aviso"><strong>Empate en el primer lugar</strong> entre ${res.empatados.map(esc).join(' y ')}. Se realizará segunda vuelta.</div>`
+      : `<p class="ganador">🏆 Líder elegido: <strong>${esc(top[0].nombre)}</strong></p>`;
+    const fuera = res.ranking.filter(c => !top.includes(c));
+    const resto = fuera.length ? `
+      <table><tbody>${fuera.map(c =>
+        `<tr><td>${c.puesto}.</td><td>${esc(c.nombre)}</td><td class="num">${c.votos}</td></tr>`).join('')}
+      </tbody></table>` : '';
+    return `${titular}<div class="podio">${orden.map(escalon).join('')}</div>${resto}`;
+  }
+
+  function tarjeta(n) {
+    return `
+      <section class="tarjeta">
+        <div class="fila-entre">
+          <h2>Nodo ${esc(n.nodo)}</h2>
+          <span class="estado estado-${n.estado}">${ESTADOS[n.estado] || n.estado}</span>
+        </div>
+        <p class="ronda">${nombreRonda(n.ronda)}</p>
+        <div class="torta-wrap">
+          ${torta(n.votaron, n.habilitados)}
+          <ul class="leyenda">
+            <li><span class="punto" style="background:var(--primario)"></span><strong>${n.votaron}</strong> votos recibidos</li>
+            <li><span class="punto" style="background:var(--pendiente)"></span><strong>${n.pendientes}</strong> pendientes</li>
+            <li class="nota">${n.habilitados} docentes habilitados</li>
+          </ul>
+        </div>
+        ${n.estado === 'cerrada' && n.resultado && n.resultado.ranking.length ? podio(n.resultado) : ''}
+      </section>`;
+  }
+
+  async function cargar() {
+    if (document.hidden) return;
+    try {
+      const d = await api('info', {}, { reintentos: 0 });
+      document.getElementById('nodos').innerHTML = d.nodos.map(tarjeta).join('');
+      document.getElementById('actualizado').textContent =
+        'Actualizado ' + new Date().toLocaleTimeString('es-CO') + ' · se actualiza solo cada 15 s';
+    } catch (e) {
+      document.getElementById('actualizado').textContent = e.message + ' Reintentando…';
+    }
+  }
+
+  cargar();
+  setInterval(cargar, REFRESCO_MS);
+  document.addEventListener('visibilitychange', cargar);
+</script>
+</body>
+</html>

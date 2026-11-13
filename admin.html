@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Administración · Elección de líderes de nodo</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="contenedor">
+  <header class="cabecera fila-entre">
+    <div>
+      <h1>Panel de administración</h1>
+      <p class="sub">Elección de líderes de nodo</p>
+    </div>
+    <button id="btn-salir" class="btn secundario peque oculto" type="button">Salir</button>
+  </header>
+
+  <section id="login" class="tarjeta estrecha">
+    <form id="form-login">
+      <label for="clave">Clave de administración</label>
+      <input id="clave" type="password" autocomplete="current-password" required>
+      <button class="btn primario" type="submit">Entrar</button>
+    </form>
+  </section>
+
+  <div id="app" class="oculto">
+    <nav class="tabs">
+      <button type="button" data-tab="votacion" class="activo">Votación</button>
+      <button type="button" data-tab="candidatos">Candidatos</button>
+      <button type="button" data-tab="votantes">Docentes habilitados</button>
+    </nav>
+
+    <p id="msg" class="alerta oculto" role="status"></p>
+
+    <!-- Votación -->
+    <section id="tab-votacion">
+      <div id="panel-nodos" class="grid-nodos"></div>
+      <p class="nota">Este panel se actualiza solo cada 20 segundos. Los votos por candidato solo se muestran cuando el nodo está cerrado.</p>
+    </section>
+
+    <!-- Candidatos -->
+    <section id="tab-candidatos" class="oculto">
+      <div class="tarjeta">
+        <h2 id="form-cand-titulo">Nuevo candidato</h2>
+        <form id="form-cand" class="form-grid">
+          <input type="hidden" id="cand-id">
+          <label>Nombre<input id="cand-nombre" required maxlength="120"></label>
+          <label>Departamento<input id="cand-dep" required maxlength="120"></label>
+          <label>Municipio<input id="cand-mun" required maxlength="120"></label>
+          <label>Nodo<select id="cand-nodo" required></select></label>
+          <div class="acciones">
+            <button class="btn primario" type="submit">Guardar candidato</button>
+            <button class="btn secundario oculto" type="button" id="cand-cancelar">Cancelar edición</button>
+          </div>
+        </form>
+        <p class="nota">Solo se pueden agregar o eliminar candidatos mientras el nodo está en preparación. Corregir nombre, departamento o municipio se puede en cualquier momento.</p>
+      </div>
+      <div class="tarjeta"><div id="lista-cand"></div></div>
+    </section>
+
+    <!-- Votantes -->
+    <section id="tab-votantes" class="oculto">
+      <div class="tarjeta">
+        <h2>Cargar docentes habilitados</h2>
+        <p class="nota">Una línea por docente: <code>cédula, nombre, nodo</code>. Puedes copiar 3 columnas desde Excel o Google Sheets y pegarlas aquí. Si la cédula ya existe, se actualizan su nombre y nodo.</p>
+        <textarea id="votantes-texto" rows="8" placeholder="1023456789, Ana María Ríos, Pacífico&#10;79888777, Carlos Gómez, Cafetero"></textarea>
+        <button id="btn-importar" class="btn primario" type="button">Cargar lista</button>
+        <div id="import-res"></div>
+      </div>
+      <div class="tarjeta">
+        <div class="fila-entre">
+          <h2>Docentes habilitados</h2>
+          <div class="filtros">
+            <input id="buscar" type="search" placeholder="Buscar cédula o nombre">
+            <select id="filtro-nodo"><option value="">Todos los nodos</option></select>
+            <select id="filtro-voto">
+              <option value="">Todos</option>
+              <option value="no">Pendientes</option>
+              <option value="si">Ya votaron</option>
+            </select>
+          </div>
+        </div>
+        <p id="conteo-votantes" class="nota"></p>
+        <div id="lista-votantes" class="tabla-scroll"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script>
+  const $ = s => document.querySelector(s);
+  let CLAVE = sessionStorage.getItem('clave_admin') || '';
+  let DATOS = null;
+  let timer = null;
+
+  const adm = (action, payload = {}) => api(action, { ...payload, clave: CLAVE });
+
+  function aviso(texto, tipo = 'ok') {
+    const m = $('#msg');
+    m.className = 'alerta ' + (tipo === 'error' ? '' : tipo);
+    m.textContent = texto;
+    clearTimeout(aviso.t);
+    aviso.t = setTimeout(() => m.classList.add('oculto'), tipo === 'error' ? 9000 : 4000);
+  }
+
+  async function accion(btn, fn, exito) {
+    if (btn) btn.disabled = true;
+    try {
+      await fn();
+      if (exito) aviso(exito);
+      await cargar();
+    } catch (e) {
+      aviso(e.message, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // ---------- Sesión ----------
+  async function entrar(clave) {
+    CLAVE = clave;
+    await adm('login');
+    sessionStorage.setItem('clave_admin', clave);
+    $('#login').classList.add('oculto');
+    $('#app').classList.remove('oculto');
+    $('#btn-salir').classList.remove('oculto');
+    await cargar();
+    clearInterval(timer);
+    timer = setInterval(() => {
+      if (!document.hidden && !$('#tab-votacion').classList.contains('oculto')) cargar(true);
+    }, 20000);
+  }
+
+  $('#form-login').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const btn = ev.target.querySelector('button');
+    btn.disabled = true;
+    try { await entrar($('#clave').value.trim()); }
+    catch (e) { CLAVE = ''; aviso(e.message, 'error'); $('#msg').classList.remove('oculto'); }
+    finally { btn.disabled = false; }
+  });
+
+  $('#btn-salir').addEventListener('click', () => {
+    sessionStorage.removeItem('clave_admin');
+    location.reload();
+  });
+
+  // ---------- Pestañas ----------
+  document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('activo', x === b));
+    ['votacion', 'candidatos', 'votantes'].forEach(t =>
+      $('#tab-' + t).classList.toggle('oculto', t !== b.dataset.tab));
+  }));
+
+  // ---------- Carga ----------
+  async function cargar(silencioso) {
+    try {
+      DATOS = await adm('datos');
+      renderNodos();
+      if (!silencioso) { renderSelects(); renderCandidatos(); renderVotantes(); }
+    } catch (e) {
+      if (!silencioso) throw e;
+    }
+  }
+
+  function estadoNodo(nodo) { return DATOS.nodos.find(n => n.nodo === nodo)?.estado; }
+
+  // ---------- Votación ----------
+  function renderNodos() {
+    $('#panel-nodos').innerHTML = DATOS.nodos.map(n => {
+      const p = n.habilitados ? Math.round(100 * n.votaron / n.habilitados) : 0;
+      const btn = (acc, texto, clase = 'secundario') =>
+        `<button class="btn peque ${clase}" type="button" data-acc="${acc}" data-nodo="${esc(n.nodo)}">${texto}</button>`;
+      let botones = '';
+      if (n.estado === 'preparacion') botones += btn('abrir', 'Abrir votación', 'exito');
+      if (n.estado === 'abierta') botones += btn('cerrar', 'Cerrar votación', 'primario');
+      if (n.estado === 'cerrada') {
+        if (n.resultado?.empate) botones += btn('segunda', 'Iniciar segunda vuelta', 'primario');
+        botones += btn('reabrir', 'Reabrir');
+      }
+      botones += btn('reiniciar', 'Reiniciar (pruebas)', 'peligro');
+
+      let resultado = '';
+      if (n.estado === 'cerrada' && n.resultado) {
+        const r = n.resultado;
+        resultado = `
+          ${r.empate
+            ? `<div class="alerta aviso"><strong>Empate en el primer lugar:</strong> ${r.empatados.map(esc).join(' y ')}. Usa “Iniciar segunda vuelta”.</div>`
+            : `<div class="alerta ok"><strong>Líder elegido:</strong> ${esc(r.ranking[0]?.nombre || '—')}</div>`}
+          <table>
+            <thead><tr><th>#</th><th>Candidato</th><th>Municipio</th><th class="num">Votos</th></tr></thead>
+            <tbody>${r.ranking.map(c => `<tr><td>${c.puesto}</td><td>${esc(c.nombre)}</td><td>${esc(c.municipio)}</td><td class="num">${c.votos}</td></tr>`).join('')}</tbody>
+          </table>`;
+      }
+
+      return `
+        <section class="tarjeta">
+          <div class="fila-entre">
+            <h2>Nodo ${esc(n.nodo)}</h2>
+            <span class="estado estado-${n.estado}">${ESTADOS[n.estado] || n.estado}</span>
+          </div>
+          <p class="ronda">${nombreRonda(n.ronda)} · ${n.candidatos} candidatos activos</p>
+          <div class="barra"><div style="width:${p}%"></div></div>
+          <p><strong>${n.votaron}</strong> de ${n.habilitados} docentes votaron (${p}%) · <strong>${n.pendientes}</strong> pendientes</p>
+          ${n.habilitados ? `<p class="check ${n.cuadra ? 'ok' : 'mal'}">${n.cuadra
+            ? '✓ Conteo verificado: votos registrados = docentes que votaron'
+            : `⚠ Revisar: ${n.conteoTotal} votos registrados vs ${n.votaron} docentes que votaron`}</p>` : ''}
+          ${resultado}
+          <div class="acciones">${botones}</div>
+        </section>`;
+    }).join('');
+  }
+
+  $('#panel-nodos').addEventListener('click', ev => {
+    const b = ev.target.closest('button[data-acc]');
+    if (!b) return;
+    const nodo = b.dataset.nodo;
+    const acciones = {
+      abrir: () => confirm(`¿Abrir la votación del nodo ${nodo}? Los docentes podrán votar desde este momento.`)
+        && accion(b, () => adm('cambiarEstado', { nodo, estado: 'abierta' }), `Votación del nodo ${nodo} abierta.`),
+      cerrar: () => confirm(`¿Cerrar la votación del nodo ${nodo}? Ya nadie podrá votar y se publicará el podio.`)
+        && accion(b, () => adm('cambiarEstado', { nodo, estado: 'cerrada' }), `Votación del nodo ${nodo} cerrada.`),
+      reabrir: () => confirm(`¿Reabrir la votación del nodo ${nodo}? Se ocultará el podio y los pendientes podrán votar.`)
+        && accion(b, () => adm('cambiarEstado', { nodo, estado: 'abierta' }), `Votación del nodo ${nodo} reabierta.`),
+      segunda: () => confirm(`Segunda vuelta del nodo ${nodo}:\n\n• Solo quedan los candidatos empatados en el primer lugar.\n• Los votos vuelven a cero y todos los docentes del nodo pueden votar de nuevo.\n• Los resultados de esta ronda quedan guardados en la hoja "Historial".\n\nDespués debes abrir la votación. ¿Continuar?`)
+        && accion(b, () => adm('segundaVuelta', { nodo }), `Segunda vuelta del nodo ${nodo} lista. Ábrela cuando quieras.`),
+      reiniciar: () => {
+        const t = prompt(`⚠ Esto BORRA todos los votos del nodo ${nodo}, reactiva a todos sus candidatos y vuelve a la primera vuelta.\nÚsalo solo para pruebas antes de la votación real.\n\nEscribe REINICIAR para confirmar:`);
+        if (t === null) return;
+        accion(b, () => adm('reiniciarNodo', { nodo, confirmacion: t.trim() }), `Nodo ${nodo} reiniciado.`);
+      }
+    };
+    acciones[b.dataset.acc]?.();
+  });
+
+  // ---------- Candidatos ----------
+  function renderSelects() {
+    const opts = DATOS.nodosValidos.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    const sel = $('#cand-nodo'), val = sel.value;
+    sel.innerHTML = '<option value="">Selecciona…</option>' + opts;
+    sel.value = val;
+    const f = $('#filtro-nodo'), fv = f.value;
+    f.innerHTML = '<option value="">Todos los nodos</option>' + opts;
+    f.value = fv;
+  }
+
+  function renderCandidatos() {
+    $('#lista-cand').innerHTML = DATOS.nodosValidos.map(nodo => {
+      const cs = DATOS.candidatos.filter(c => c.nodo === nodo);
+      const prep = estadoNodo(nodo) === 'preparacion';
+      const filas = cs.map(c => `
+        <tr>
+          <td>${esc(c.nombre)}</td>
+          <td>${esc(c.departamento)}</td>
+          <td>${esc(c.municipio)}</td>
+          <td><span class="chip ${c.activo ? 'si' : ''}">${c.activo ? 'Activo' : 'Fuera de esta ronda'}</span></td>
+          <td class="num">${c.votos ?? '—'}</td>
+          <td class="num" style="white-space:nowrap">
+            <button class="btn secundario peque" type="button" data-editar="${esc(c.id)}">Editar</button>
+            ${prep ? `<button class="btn peligro peque" type="button" data-eliminar="${esc(c.id)}">Eliminar</button>` : ''}
+          </td>
+        </tr>`).join('');
+      return `
+        <div class="grupo-nodo">
+          <h3>Nodo ${esc(nodo)} · ${cs.length} candidato${cs.length === 1 ? '' : 's'}</h3>
+          ${cs.length ? `<div class="tabla-scroll"><table>
+            <thead><tr><th>Nombre</th><th>Departamento</th><th>Municipio</th><th>Estado</th><th class="num">Votos</th><th></th></tr></thead>
+            <tbody>${filas}</tbody></table></div>` : '<p class="nota">Sin candidatos todavía.</p>'}
+        </div>`;
+    }).join('');
+  }
+
+  function limpiarFormCand() {
+    $('#form-cand').reset();
+    $('#cand-id').value = '';
+    $('#form-cand-titulo').textContent = 'Nuevo candidato';
+    $('#cand-cancelar').classList.add('oculto');
+  }
+
+  $('#form-cand').addEventListener('submit', ev => {
+    ev.preventDefault();
+    const candidato = {
+      id: $('#cand-id').value || undefined,
+      nombre: $('#cand-nombre').value,
+      departamento: $('#cand-dep').value,
+      municipio: $('#cand-mun').value,
+      nodo: $('#cand-nodo').value
+    };
+    const editando = !!candidato.id;
+    accion(ev.target.querySelector('button[type=submit]'), async () => {
+      await adm('guardarCandidato', { candidato });
+      limpiarFormCand();
+    }, editando ? 'Candidato actualizado.' : 'Candidato agregado.');
+  });
+
+  $('#cand-cancelar').addEventListener('click', limpiarFormCand);
+
+  $('#lista-cand').addEventListener('click', ev => {
+    const ed = ev.target.closest('[data-editar]');
+    const el = ev.target.closest('[data-eliminar]');
+    if (ed) {
+      const c = DATOS.candidatos.find(x => x.id === ed.dataset.editar);
+      $('#cand-id').value = c.id;
+      $('#cand-nombre').value = c.nombre;
+      $('#cand-dep').value = c.departamento;
+      $('#cand-mun').value = c.municipio;
+      $('#cand-nodo').value = c.nodo;
+      $('#form-cand-titulo').textContent = 'Editar candidato';
+      $('#cand-cancelar').classList.remove('oculto');
+      $('#form-cand').scrollIntoView({ behavior: 'smooth' });
+    }
+    if (el) {
+      const c = DATOS.candidatos.find(x => x.id === el.dataset.eliminar);
+      if (confirm(`¿Eliminar a ${c.nombre} del nodo ${c.nodo}?`)) {
+        accion(el, () => adm('eliminarCandidato', { id: c.id }), 'Candidato eliminado.');
+      }
+    }
+  });
+
+  // ---------- Votantes ----------
+  function renderVotantes() {
+    const q = $('#buscar').value.trim().toLowerCase();
+    const fn = $('#filtro-nodo').value, fv = $('#filtro-voto').value;
+    const lista = DATOS.votantes.filter(v =>
+      (!q || v.cedula.includes(q) || v.nombre.toLowerCase().includes(q)) &&
+      (!fn || v.nodo === fn) &&
+      (!fv || (fv === 'si') === v.voto));
+
+    const porNodo = DATOS.nodos.map(n => `${n.nodo}: ${n.habilitados}`).join(' · ');
+    $('#conteo-votantes').innerHTML = `${DATOS.votantes.length} docentes cargados (${esc(porNodo)}). Mostrando ${lista.length}.` +
+      (DATOS.duplicadas.length ? `<br><span class="check mal">⚠ Cédulas repetidas en la hoja: ${DATOS.duplicadas.map(esc).join(', ')}</span>` : '');
+
+    $('#lista-votantes').innerHTML = lista.length ? `
+      <table>
+        <thead><tr><th>Cédula</th><th>Nombre</th><th>Nodo</th><th>Estado</th><th></th></tr></thead>
+        <tbody>${lista.map(v => `
+          <tr>
+            <td>${esc(v.cedula)}</td>
+            <td>${esc(v.nombre)}</td>
+            <td>${esc(v.nodo)}</td>
+            <td><span class="chip ${v.voto ? 'si' : 'no'}">${v.voto ? 'Ya votó' : 'Pendiente'}</span></td>
+            <td class="num">${v.voto ? '' : `<button class="btn peligro peque" type="button" data-borrar="${esc(v.cedula)}">Quitar</button>`}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>` : '<p class="nota">No hay docentes para mostrar.</p>';
+  }
+
+  ['#buscar', '#filtro-nodo', '#filtro-voto'].forEach(s => $(s).addEventListener('input', renderVotantes));
+
+  $('#btn-importar').addEventListener('click', ev => {
+    const texto = $('#votantes-texto').value;
+    if (!texto.trim()) return aviso('Pega al menos una línea.', 'error');
+    accion(ev.currentTarget, async () => {
+      const r = await adm('importarVotantes', { texto });
+      $('#import-res').innerHTML = `
+        <div class="alerta ${r.errores.length ? 'aviso' : 'ok'}">
+          ${r.agregados} agregados · ${r.actualizados} actualizados${r.errores.length ? ` · ${r.errores.length} con problemas:` : ''}
+          ${r.errores.length ? `<ul>${r.errores.map(e => `<li>${esc(e)}</li>`).join('')}</ul>` : ''}
+        </div>`;
+      if (!r.errores.length) $('#votantes-texto').value = '';
+    });
+  });
+
+  $('#lista-votantes').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-borrar]');
+    if (b && confirm(`¿Quitar la cédula ${b.dataset.borrar} de la lista de habilitados?`)) {
+      accion(b, () => adm('eliminarVotante', { cedula: b.dataset.borrar }), 'Docente quitado de la lista.');
+    }
+  });
+
+  // ---------- Inicio ----------
+  if (CLAVE) {
+    entrar(CLAVE).catch(() => {
+      sessionStorage.removeItem('clave_admin');
+      CLAVE = '';
+    });
+  }
+</script>
+</body>
+</html>

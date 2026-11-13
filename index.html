@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Elección de líderes de nodo</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="contenedor estrecho">
+  <header class="cabecera">
+    <h1>Elección de líderes de nodo</h1>
+    <p class="sub">Nodos Pacífico y Cafetero</p>
+  </header>
+
+  <!-- Paso 1: cédula -->
+  <section id="paso-cedula" class="tarjeta">
+    <form id="form-cedula" novalidate>
+      <label for="cedula">Número de cédula</label>
+      <input id="cedula" inputmode="numeric" autocomplete="off" placeholder="Ej. 1023456789">
+      <button class="btn primario" type="submit">Continuar</button>
+    </form>
+    <p class="nota">Tu voto es secreto: el sistema solo registra que ya votaste, no por quién.</p>
+  </section>
+
+  <!-- Paso 2: candidatos -->
+  <section id="paso-candidatos" class="tarjeta oculto">
+    <p class="saludo" id="saludo"></p>
+    <h2 id="titulo-nodo"></h2>
+    <form id="form-voto">
+      <div id="lista-candidatos" class="opciones"></div>
+      <button class="btn primario" type="submit">Continuar</button>
+      <button class="btn enlace" type="button" data-volver="cedula">Cambiar cédula</button>
+    </form>
+  </section>
+
+  <!-- Paso 3: confirmación -->
+  <section id="paso-confirmar" class="tarjeta oculto">
+    <h2>Confirma tu voto</h2>
+    <p>Vas a votar por:</p>
+    <div id="resumen" class="resumen"></div>
+    <p class="nota">Después de confirmar no podrás cambiar tu voto.</p>
+    <button id="btn-confirmar" class="btn primario" type="button">Confirmar voto</button>
+    <button class="btn secundario" type="button" data-volver="candidatos">Volver</button>
+  </section>
+
+  <!-- Paso 4: listo -->
+  <section id="paso-listo" class="tarjeta oculto centrado">
+    <div class="icono-ok">✓</div>
+    <h2 id="listo-titulo"></h2>
+    <p id="listo-texto"></p>
+    <a class="btn secundario" href="resultados.html">Ver avance de la votación</a>
+  </section>
+
+  <p id="error" class="alerta oculto" role="alert"></p>
+
+  <footer class="pie"><a href="resultados.html">Ver avance y resultados</a></footer>
+</main>
+
+<script src="config.js"></script>
+<script>
+  const $ = s => document.querySelector(s);
+  const st = { cedula: '', datos: null, elegido: null };
+
+  function mostrar(paso) {
+    ['cedula', 'candidatos', 'confirmar', 'listo'].forEach(p =>
+      $('#paso-' + p).classList.toggle('oculto', p !== paso));
+    ocultarError();
+    window.scrollTo(0, 0);
+  }
+  function error(msg) { const e = $('#error'); e.textContent = msg; e.classList.remove('oculto'); }
+  function ocultarError() { $('#error').classList.add('oculto'); }
+  function cargando(btn, si, texto) {
+    btn.disabled = si;
+    if (si) { btn.dataset.t = btn.textContent; btn.textContent = texto; }
+    else if (btn.dataset.t) btn.textContent = btn.dataset.t;
+  }
+  function listo(titulo, texto) {
+    $('#listo-titulo').textContent = titulo;
+    $('#listo-texto').textContent = texto;
+    mostrar('listo');
+  }
+
+  // Paso 1
+  $('#form-cedula').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const btn = ev.target.querySelector('button[type=submit]');
+    const ced = $('#cedula').value.replace(/\D/g, '');
+    if (ced.length < 5) return error('Escribe tu número de cédula, solo números.');
+    cargando(btn, true, 'Verificando…');
+    try {
+      const d = await api('verificar', { cedula: ced });
+      st.cedula = ced; st.datos = d; st.elegido = null;
+      if (d.yaVoto) {
+        listo('Ya votaste', `${d.nombre}, tu voto en el nodo ${d.nodo} ya está registrado. Solo se permite un voto por docente.`);
+        return;
+      }
+      $('#saludo').textContent = `Hola, ${d.nombre}`;
+      $('#titulo-nodo').textContent = `Nodo ${d.nodo} · ${nombreRonda(d.ronda)}`;
+      $('#lista-candidatos').innerHTML = d.candidatos.map(c => `
+        <label class="opcion">
+          <input type="radio" name="cand" value="${esc(c.id)}">
+          <span><strong>${esc(c.nombre)}</strong><small>${esc(c.municipio)}, ${esc(c.departamento)}</small></span>
+        </label>`).join('');
+      mostrar('candidatos');
+    } catch (e) {
+      error(e.message);
+    } finally {
+      cargando(btn, false);
+    }
+  });
+
+  // Paso 2
+  $('#form-voto').addEventListener('submit', ev => {
+    ev.preventDefault();
+    const sel = document.querySelector('input[name=cand]:checked');
+    if (!sel) return error('Selecciona un candidato.');
+    st.elegido = st.datos.candidatos.find(c => c.id === sel.value);
+    $('#resumen').innerHTML = `<strong>${esc(st.elegido.nombre)}</strong>
+      <small>${esc(st.elegido.municipio)}, ${esc(st.elegido.departamento)} · Nodo ${esc(st.datos.nodo)}</small>`;
+    mostrar('confirmar');
+  });
+
+  // Paso 3
+  $('#btn-confirmar').addEventListener('click', async ev => {
+    const btn = ev.currentTarget;
+    cargando(btn, true, 'Registrando voto…');
+    try {
+      const r = await api('votar', { cedula: st.cedula, candidatoId: st.elegido.id }, { reintentos: 4 });
+      if (r.registrado) {
+        listo('¡Voto registrado!', `Gracias, ${st.datos.nombre}. Tu voto en el nodo ${r.nodo} quedó guardado.`);
+      } else {
+        listo('Tu voto ya está registrado', `La cédula ingresada ya votó en el nodo ${r.nodo}. Solo se permite un voto por docente.`);
+      }
+      $('#cedula').value = '';
+    } catch (e) {
+      error(e.message);
+    } finally {
+      cargando(btn, false);
+    }
+  });
+
+  document.querySelectorAll('[data-volver]').forEach(b =>
+    b.addEventListener('click', () => mostrar(b.dataset.volver)));
+</script>
+</body>
+</html>
