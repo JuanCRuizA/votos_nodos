@@ -1,5 +1,5 @@
 // ⚠️ Pega aquí la URL de tu aplicación web de Apps Script (termina en /exec)
-const API_URL = 'PEGA_AQUI_LA_URL_DEL_WEB_APP';
+const API_URL = 'https://script.google.com/macros/s/AKfycbz_WAh6d439dUfMdPPYt6fpx-8LIqOy4RAoSAGaqf_v_5ayvGvdInAjkUzDBmdWH42d-A/exec';
 
 class ApiError extends Error {
   constructor(msg, reintentar) { super(msg); this.reintentar = reintentar; }
