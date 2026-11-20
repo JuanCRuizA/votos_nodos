@@ -92,6 +92,8 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .88
 .opcion input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: var(--primario); }
 .opcion:has(input:checked) { border-color: var(--primario); background: var(--primario-claro); }
 .opcion strong { display: block; }
+.opcion.blanco { border-style: dashed; margin-top: 6px; }
+.blancos { text-align: center; color: var(--suave); margin: 4px 0 8px; }
 .opcion small { color: var(--suave); }
 .saludo { color: var(--suave); margin: 0 0 2px; }
 .resumen { border-left: 4px solid var(--primario); background: var(--primario-claro); padding: 12px 14px; border-radius: 8px; margin: 8px 0; }

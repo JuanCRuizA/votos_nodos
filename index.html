@@ -75,6 +75,9 @@
     if (si) { btn.dataset.t = btn.textContent; btn.textContent = texto; }
     else if (btn.dataset.t) btn.textContent = btn.dataset.t;
   }
+  function detalle(c) {
+    return c.blanco ? 'No eliges a ningún candidato' : `${esc(c.municipio)}, ${esc(c.departamento)}`;
+  }
   function listo(titulo, texto) {
     $('#listo-titulo').textContent = titulo;
     $('#listo-texto').textContent = texto;
@@ -98,9 +101,9 @@
       $('#saludo').textContent = `Hola, ${d.nombre}`;
       $('#titulo-nodo').textContent = `Nodo ${d.nodo} · ${nombreRonda(d.ronda)}`;
       $('#lista-candidatos').innerHTML = d.candidatos.map(c => `
-        <label class="opcion">
+        <label class="opcion${c.blanco ? ' blanco' : ''}">
           <input type="radio" name="cand" value="${esc(c.id)}">
-          <span><strong>${esc(c.nombre)}</strong><small>${esc(c.municipio)}, ${esc(c.departamento)}</small></span>
+          <span><strong>${esc(c.nombre)}</strong><small>${detalle(c)}</small></span>
         </label>`).join('');
       mostrar('candidatos');
     } catch (e) {
@@ -117,7 +120,7 @@
     if (!sel) return error('Selecciona un candidato.');
     st.elegido = st.datos.candidatos.find(c => c.id === sel.value);
     $('#resumen').innerHTML = `<strong>${esc(st.elegido.nombre)}</strong>
-      <small>${esc(st.elegido.municipio)}, ${esc(st.elegido.departamento)} · Nodo ${esc(st.datos.nodo)}</small>`;
+      <small>${detalle(st.elegido)} · Nodo ${esc(st.datos.nodo)}</small>`;
     mostrar('confirmar');
   });
 

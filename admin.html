@@ -192,7 +192,8 @@
             : `<div class="alerta ok"><strong>Líder elegido:</strong> ${esc(r.ranking[0]?.nombre || '—')}</div>`}
           <table>
             <thead><tr><th>#</th><th>Candidato</th><th>Municipio</th><th class="num">Votos</th></tr></thead>
-            <tbody>${r.ranking.map(c => `<tr><td>${c.puesto}</td><td>${esc(c.nombre)}</td><td>${esc(c.municipio)}</td><td class="num">${c.votos}</td></tr>`).join('')}</tbody>
+            <tbody>${r.ranking.map(c => `<tr><td>${c.puesto}</td><td>${esc(c.nombre)}</td><td>${esc(c.municipio)}</td><td class="num">${c.votos}</td></tr>`).join('')}
+              <tr><td></td><td><em>Voto en blanco</em></td><td></td><td class="num">${r.blancos || 0}</td></tr></tbody>
           </table>`;
       }
 
